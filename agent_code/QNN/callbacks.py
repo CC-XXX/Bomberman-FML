@@ -83,6 +83,7 @@ def act(self, game_state):
 
     self.last_pos = game_state['self'][3]
     self.states = perspective(game_state)
+    self.last_actions=np.zeros(1)
 
     if self.train:
 
@@ -113,6 +114,14 @@ def act(self, game_state):
         #return np.argmax(act_values[0])  # returns action
 
     else:
+        if np.random.uniform() <= self.epsilon:
+            self.next_action=random.choice(s.ACTIONS)
+            action_index=s.ACTIONS.index(self.next_action)
+            self.last_actions = np.vstack((self.last_actions, action_index))
+            print('Random Action:' + str(self.next_action))
+
+            return self.next_action
+        
         new_array = np.zeros((1, 1, 4, s.DEFAULT_PERSPECTIVE_DISTANCE))
         new_array[0][0] = self.states
         es_act_values = self.eval_model.predict(new_array)
