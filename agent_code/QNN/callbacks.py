@@ -83,7 +83,7 @@ def act(self, game_state):
 
     self.last_pos = game_state['self'][3]
     self.states = perspective(game_state)
-    self.last_actions=np.zeros(1)
+    self.last_actions=np.zeros(1,dtype=int)
 
     if self.train:
 
