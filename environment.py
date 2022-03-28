@@ -305,11 +305,6 @@ class GenericWorld:
             self.logger.info('Maximum number of steps reached, wrap up round')
             return True
 
-        # add
-        if not any(a.code_name=='Q_table' for a in self.active_agents):
-            self.logger.info('Maximum number of steps reached, wrap up round')
-            return True
-
         return False
 
     def end(self):
