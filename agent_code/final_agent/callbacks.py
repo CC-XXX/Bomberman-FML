@@ -246,7 +246,7 @@ def decision_tree_regressor(self):
     
     X = np.stack(channel)
     y = np.stack(y)
-    regressor = tree.DecisionTreeClassifier(min_samples_leaf = 4)
+    regressor = tree.DecisionTreeClassifier(min_samples_leaf = 1)
     regressor = regressor.fit(X, y)
     return regressor
 
