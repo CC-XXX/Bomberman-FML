@@ -41,15 +41,19 @@ def setup(self):
     define the pt document to store the model data
     '''
 
-    def setup(self):
-        if not os.path.isfile("my-saved-model.pt"):
-            self.logger.info("Setting up model from scratch.")
-            self.model = np.zeros((6, 6, 6, 2, 2, 2, 6))
+    if not os.path.isfile("model.pt"):
+        self.logger.info("Setting up model from scratch.")
+        self.model = np.zeros((6, 6, 6, 2, 2, 2, 6))
 
-        else:
-            self.logger.info("Loading model from saved state.")
-            with open("my-saved-model.pt", "rb") as file:
-                self.model = pickle.load(file)
+    elif self.train:
+        self.logger.info("Loading model form saved state.")
+        with open("model.pt", "rb") as file:
+            self.model = pickle.load(file)
+    else:
+        self.logger.info("Loading model form saved state.")
+        with open("model.pt", "rb") as file:
+            self.model = pickle.load(file)
+        self.regressor = decision_tree_regressor(self)
 
          
 def act(self, game_state: dict) -> str:
@@ -58,15 +62,21 @@ def act(self, game_state: dict) -> str:
     if not train use regression to predict action
     '''
 
-    def setup(self):
-        if not os.path.isfile("my-saved-model.pt"):
-            self.logger.info("Setting up model from scratch.")
-            self.model = np.zeros((6, 6, 6, 2, 2, 2, 6))
+    if not game_state:
+        return 'WAIT'
 
-        else:
-            self.logger.info("Loading model from saved state.")
-            with open("my-saved-model.pt", "rb") as file:
-                self.model = pickle.load(file)
+    random_prob=.2
+
+    features = get_features(game_state)
+
+    if self.train and random.random() < random_prob:
+        return np.random.choice(ACTIONS)
+
+    if self.train:
+    #    return np.random.choice(ACTIONS)
+        return ACTIONS[np.argmax(find_action(self.model, features))]
+    else:
+        return predict_action(features, self.regressor)
 
 def get_features(game_state: dict):
     '''
@@ -213,4 +223,38 @@ def find_direction(game_state, field, x_s, y_s, goal, path_type, max_len=np.inf)
 
 
 
+def decision_tree_regressor(self):
+    '''
+    define a regressor 
+    spilt the features and action, all of them are stored in the model.py
+    store the features in X and store the action in y
+    '''
+    dims = (self.model).shape
+#    print(dims)
+    channel = []
+    y = []
+    for a in range(dims[0]):
+        for b in range(dims[1]):
+            for c in range(dims[2]):
+                for d in range(dims[3]):
+                    for e in range(dims[4]):
+                        for f in range(dims[5]):
+                            action = np.argmax(self.model[a, b, c, d, e ,f])
+                            channel.append([a, b, c, d, e, f])
+                            y.append([action])
+                                
+    
+    X = np.stack(channel)
+    y = np.stack(y)
+    regressor = tree.DecisionTreeClassifier(min_samples_leaf = 1)
+    regressor = regressor.fit(X, y)
+    return regressor
 
+def predict_action(features, regressor):
+    '''
+    predict the action
+    '''
+    action = regressor.predict([features])
+    a = action[0]
+#    print(ACTIONS[a])
+    return ACTIONS[a]
