@@ -35,13 +35,6 @@ def find_action(model, features):
     return current
 
 def setup(self):
-    '''
-    function for setting up 
-    define the model which store the features and action for the agent robot
-    define the pt document to store the model data
-    '''
-
-def setup(self):
     if not os.path.isfile("my-saved-model.pt"):
         self.logger.info("Setting up model from scratch.")
         self.model = np.zeros((6, 6, 6, 2, 2, 2, 6))
