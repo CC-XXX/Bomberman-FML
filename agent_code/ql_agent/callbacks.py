@@ -1,17 +1,17 @@
 import os
 import pickle
 import random
-
 import numpy as np
 import sys
 from collections import deque
 import time
+from sklearn import tree
 
 ACTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT', 'WAIT', 'BOMB']
 FEATURES = {
-    'nearest safe spot dir': 'dir',
-    'nearest coin dir': 'dir',
-    'nearest crate dir': 'dir',
+    'nearest safe spot ': 'dir',
+    'nearest coin ': 'dir',
+    'nearest crate ': 'dir',
     'safe to bomb': 'bool',
     'enemy is trapped': 'bool',
     'bomb available': 'bool'
@@ -25,45 +25,59 @@ PATH = {
     5: 'left'
 }
 
-def print_features(features):
-    for i in features:
-        print(i)
-    print('******************************')
-
-
-def model_evaluation(model, features):
+def find_action(model, features):
+    '''
+    to find the action of this array of features
+    '''
     current = model
     for f in features:
         current = current[f]
     return current
 
 def setup(self):
-    if not os.path.isfile("my-saved-model.pt"):
-        self.logger.info("Setting up model from scratch.")
-        self.model = np.zeros((6, 6, 6, 2, 2, 2, 6))
+    '''
+    function for setting up 
+    define the model which store the features and action for the agent robot
+    define the pt document to store the model data
+    '''
 
-    else:
-        self.logger.info("Loading model from saved state.")
-        with open("my-saved-model.pt", "rb") as file:
-            self.model = pickle.load(file)
-        
+    def setup(self):
+        if not os.path.isfile("my-saved-model.pt"):
+            self.logger.info("Setting up model from scratch.")
+            self.model = np.zeros((6, 6, 6, 2, 2, 2, 6))
+
+        else:
+            self.logger.info("Loading model from saved state.")
+            with open("my-saved-model.pt", "rb") as file:
+                self.model = pickle.load(file)
+
+         
 def act(self, game_state: dict) -> str:
+    '''
+    if train use q-learning to store the model state
+    if not train use regression to predict action
+    '''
 
     if not game_state:
         return 'WAIT'
 
-    random_prob = .05
-    if self.train and random.random() < random_prob:
-        self.logger.debug("Choosing action purely at random.")
-        return np.random.choice(ACTIONS)
-    
-    features = state_to_features(game_state)
- #   print_features(features)
-    
-    action = ACTIONS[np.argmax(model_evaluation(self.model, features))]
-    return action
+    random_prob=.2
 
-def state_to_features(game_state: dict):
+    features = get_features(game_state)
+
+    if self.train and random.random() < random_prob:
+        return np.random.choice(ACTIONS)
+
+    if self.train:
+    #    return np.random.choice(ACTIONS)
+        return ACTIONS[np.argmax(find_action(self.model, features))]
+    else:
+        return predict_action(features, self.regressor)
+
+def get_features(game_state: dict):
+    '''
+    to append direaction for each dimension feature 
+    '''
     features = []
 
     _, _, bomb_available, agent_pos = game_state['self']
@@ -72,30 +86,28 @@ def state_to_features(game_state: dict):
     pos_x, pos_y = agent_pos
 
     # direction to nearest safe spot
-    goal = lambda x, y: field_is_safe(game_state, x, y) == 'SAFE'
-    features.append(shortest_path(game_state, field, pos_x, pos_y, goal, 'SEMI-SAFE'))
+    goal = lambda x, y: safe_field(game_state, x, y) == 'SAFE'
+    features.append(find_direction(game_state, field, pos_x, pos_y, goal, 'SEMI-SAFE'))
 
     # direction to nearest coin
     goal = lambda x, y: (x, y) in coins
-    features.append(shortest_path(game_state, field, pos_x, pos_y, goal, 'SAFE'))
+    features.append(find_direction(game_state, field, pos_x, pos_y, goal, 'SAFE'))
 
     # direction to nearest crate
-    goal = lambda x, y: (field[x, y+1] == 1 or
-                                field[x, y-1] == 1 or
-                                field[x+1, y] == 1 or
-                                field[x-1, y] == 1)
-    features.append(shortest_path(game_state, field, pos_x, pos_y, goal, 'SAFE'))
+    goal = lambda x, y: (field[x, y+1] == 1 or field[x, y-1] == 1 or field[x+1, y] == 1 or field[x-1, y] == 1)
+                                
+    features.append(find_direction(game_state, field, pos_x, pos_y, goal, 'SAFE'))
 
     # safe to bomb 
-    goal = lambda x, y: field_is_safe(game_state, x, y, pos_x, pos_y) == 'SAFE'
-    features.append(int(shortest_path(game_state, field, pos_x, pos_y, goal, 'SEMI-SAFE', max_len=4) != 0))
+    goal = lambda x, y: safe_field(game_state, x, y, pos_x, pos_y) == 'SAFE'
+    features.append(int(find_direction(game_state, field, pos_x, pos_y, goal, 'SEMI-SAFE', max_len=4) != 0))
 
     # enemy is trapped:
-    goal = lambda x, y: field_is_safe(game_state, x, y, pos_x, pos_y) == 'SAFE'
+    goal = lambda x, y: safe_field(game_state, x, y, pos_x, pos_y) == 'SAFE'
     enemy_is_trapped = False
     for _, _ , _, pos in game_state['others']:
         x_e, y_e = pos
-        if shortest_path(game_state, field, x_e, y_e, goal, 'SEMI-SAFE', max_len=4) == 0:
+        if find_direction(game_state, field, x_e, y_e, goal, 'SEMI-SAFE', max_len=4) == 0:
             enemy_is_trapped = True
             break
     features.append(int(enemy_is_trapped))
@@ -106,10 +118,9 @@ def state_to_features(game_state: dict):
 
 
 
-def field_is_safe(game_state, pos_x, pos_y, bomb_x=None, bomb_y=None, only_custom_bomb=False):
+def safe_field(game_state, pos_x, pos_y, bomb_x=None, bomb_y=None, only_custom_bomb=False):
     '''
-    check if the given field is safe, ie: 
-    there is no explosion and no explosion in the near future happening on this field
+    check if the given field is safe
     '''
     field = game_state['field']
     bombs = game_state['bombs'].copy()
@@ -148,11 +159,12 @@ def point_in_list(x, y, l):
     if len(l) == 0: return False
     return np.min(np.sum(abs(np.array(l)[:, :2] - [x, y]), axis=1)) == 0
 
-def shortest_path(game_state, field, x_s, y_s, goal, path_type, max_len=np.inf):
+def find_direction(game_state, field, x_s, y_s, goal, path_type, max_len=np.inf):
     '''
-    0: no path to goal
-    1: at goal
-    2, 3, 4, 5: goal is in (down, up, right, left) direction
+    return direction which is then showed in the feature
+    0: no path
+    1: stay
+    2, 3, 4, 5: direction is down, up, right, left
     '''
     accepted_path_types = None
     if path_type == 'SAFE': accepted_path_types = ['SAFE']
@@ -190,19 +202,55 @@ def shortest_path(game_state, field, x_s, y_s, goal, path_type, max_len=np.inf):
         fields_visited.append([x, y, i])
         i = len(fields_visited) - 1
         
-        safe = field_is_safe(game_state, x-1, y) in accepted_path_types
+        safe = safe_field(game_state, x-1, y) in accepted_path_types
         if field[x-1, y] == 0 and not point_in_list(x-1, y, fields_visited + player_positions + list(fields_to_check)) and safe:
             fields_to_check.append([x-1, y, i])
-        safe = field_is_safe(game_state, x+1, y) in accepted_path_types
+        safe = safe_field(game_state, x+1, y) in accepted_path_types
         if field[x+1, y] == 0 and not point_in_list(x+1, y, fields_visited + player_positions + list(fields_to_check)) and safe:
             fields_to_check.append([x+1, y, i])
-        safe = field_is_safe(game_state, x, y-1) in accepted_path_types
+        safe = safe_field(game_state, x, y-1) in accepted_path_types
         if field[x, y-1] == 0 and not point_in_list(x, y-1, fields_visited + player_positions + list(fields_to_check)) and safe:
             fields_to_check.append([x, y-1, i])
-        safe = field_is_safe(game_state, x, y+1) in accepted_path_types
+        safe = safe_field(game_state, x, y+1) in accepted_path_types
         if field[x, y+1] == 0 and not point_in_list(x, y+1, fields_visited + player_positions + list(fields_to_check)) and safe:
             fields_to_check.append([x, y+1, i])
 
     return 0
 
 
+
+def decision_tree_regressor(self):
+    '''
+    define a regressor 
+    spilt the features and action, all of them are stored in the model.py
+    store the features in X and store the action in y
+    '''
+    dims = (self.model).shape
+#    print(dims)
+    channel = []
+    y = []
+    for a in range(dims[0]):
+        for b in range(dims[1]):
+            for c in range(dims[2]):
+                for d in range(dims[3]):
+                    for e in range(dims[4]):
+                        for f in range(dims[5]):
+                            action = np.argmax(self.model[a, b, c, d, e ,f])
+                            channel.append([a, b, c, d, e, f])
+                            y.append([action])
+                                
+    
+    X = np.stack(channel)
+    y = np.stack(y)
+    regressor = tree.DecisionTreeClassifier(min_samples_leaf = 1)
+    regressor = regressor.fit(X, y)
+    return regressor
+
+def predict_action(features, regressor):
+    '''
+    predict the action
+    '''
+    action = regressor.predict([features])
+    a = action[0]
+#    print(ACTIONS[a])
+    return ACTIONS[a]

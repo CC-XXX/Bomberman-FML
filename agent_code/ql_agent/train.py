@@ -5,7 +5,7 @@ from typing import List
 import numpy as np
 
 import events as e
-from .callbacks import state_to_features, model_evaluation, ACTIONS
+from .callbacks import get_features, find_action, ACTIONS
 
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward'))
@@ -20,7 +20,7 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     if not old_game_state:
         return
     
-    features_old = state_to_features(old_game_state)
+    features_old = get_features(old_game_state)
     
     outputs = ['NONE', 'CURRENT', 'DOWN', 'UP', 'RIGHT', 'LEFT']
     safe_direction = outputs[features_old[0]]
@@ -54,9 +54,12 @@ def game_events_occurred(self, old_game_state: dict, self_action: str, new_game_
     if safe_to_bomb == 0 and self_action == 'BOMB':
         events.append('BAD_BOMB')
 
+    if len(self.transitions) == 4:
+        q_learning(self)
+
     self.transitions.append(Transition(features_old, 
         self_action, 
-        state_to_features(new_game_state), 
+        get_features(new_game_state), 
         reward_from_events(self, events)))
 
 
@@ -64,25 +67,19 @@ def end_of_round(self, last_game_state: dict, last_action: str, events: List[str
 
     self.logger.debug(f'Encountered event(s) {", ".join(map(repr, events))} in final step')
     self.transitions.append(
-        Transition(state_to_features(last_game_state), 
+        Transition(get_features(last_game_state), 
         last_action, 
         None, 
         reward_from_events(self, events)))
 
-    q_update_transitions(self)
-    # Store the model
-    with open("my-saved-model.pt", "wb") as file:
+    q_learning(self)
+
+    with open("model.pt", "wb") as file:
         pickle.dump(self.model, file)
 
 
 def reward_from_events(self, events: List[str]) -> int:
-    """
-    *This is not a required function, but an idea to structure your code.*
 
-    Here you can modify the rewards your agent get so as to en/discourage
-    certain behavior.
-    """
-    
     game_rewards = {
         e.COIN_COLLECTED: 5,
         e.KILLED_OPPONENT: 5,
@@ -91,11 +88,11 @@ def reward_from_events(self, events: List[str]) -> int:
         e.MOVED_UP: -.01,
         e.MOVED_DOWN: -.01,
         e.WAITED: -.01,
-        e.INVALID_ACTION: -10, 
-        'IGNORED_THREAT': -5,
-        'PLANTED_BOMB_NEXT_TO_CRATE': 1,
-        'MOVED_TOWARDS_COIN': 2,
-        'MOVED_TOWARDS_CRATE': .5,
+        e.INVALID_ACTION: -8, 
+        'IGNORED_THREAT': -6,
+        'PLANTED_BOMB_NEXT_TO_CRATE': 3,
+        'MOVED_TOWARDS_COIN': 4,
+        'MOVED_TOWARDS_CRATE': 1.5,
         'BAD_BOMB': -10,
         'USELESS_BOMB': -1
     }
@@ -106,8 +103,7 @@ def reward_from_events(self, events: List[str]) -> int:
     self.logger.info(f"Awarded {reward_sum} for events {', '.join(events)}")
     return reward_sum
 
-# q-learing Update
-def q_update_transitions(self):
+def q_learning(self):
     alpha = .2
     gamma = .8
     
@@ -118,25 +114,8 @@ def q_update_transitions(self):
         old.append(idx_action)
 
         if new:
-            lala = alpha * (reward + gamma * np.max(
-                model_evaluation(self.model, new)) - model_evaluation(self.model, old))
-            self.model[
-                old[0], 
-                old[1], 
-                old[2], 
-                old[3],
-                old[4],
-                old[5],  
-                idx_action
-            ] += lala
+            lala = alpha * (reward + gamma * np.max(find_action(self.model, new)) - find_action(self.model, old))
+            self.model[old[0], old[1], old[2], old[3], old[4], old[5], idx_action] += lala
         else:
-            lala = alpha * (reward - model_evaluation(self.model, old))
-            self.model[
-                old[0], 
-                old[1], 
-                old[2], 
-                old[3], 
-                old[4],
-                old[5],
-                idx_action
-            ] += lala
+            lala = alpha * (reward - find_action(self.model, old))
+            self.model[old[0], old[1], old[2], old[3], old[4], old[5], idx_action] += lala
